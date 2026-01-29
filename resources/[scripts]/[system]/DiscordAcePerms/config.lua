@@ -1,6 +1,6 @@
 Config = {
-	Server_Name = "Laneway Roleplay",
-	Discord_Link = 'https://discord.gg/F5wtw7689a',
+	Server_Name = "Faction Networks",
+	Discord_Link = 'https://discord.gg/SbrRSupSKF',
 	Website_Link = 'Coming Soon',
 	Allow_Refresh_Command = true, -- Allow usage of /refreshPerms command
 	DebugScript = false,

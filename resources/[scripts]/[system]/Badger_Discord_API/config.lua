@@ -1,10 +1,10 @@
 Config = {
-	Guild_ID = '1335097499672641558', -- Set to the ID of your guild (or your Primary guild if using Multiguild)
+	Guild_ID = '1393785018681393152', -- Set to the ID of your guild (or your Primary guild if using Multiguild)
 	Multiguild = false, -- Set to true if you want to use multiple guilds
 	Guilds = {
-		["Laneway Roleplay"] = "1335097499672641558", -- Replace this with a name, like "main"
+		["Faction Networks"] = "1393785018681393152", -- Replace this with a name, like "main"
 	},
-	Bot_Token = 'MTQ2MzQ5NTk3NDc4MDY3MDAxNQ.GvBKx8.ZBfqLWppYT2-rvncf1VKWOw4Fd87nNRZN7fI_4',
+	Bot_Token = 'MTQyMjQ0OTEyOTU5Mzc3MDEwNQ.GcrssE.6k57UP2nsp4lwy-Ri5jKIdk428U-ermEBtcAhU',
 	RoleList = {
 
 		['director'] = '1335815945108717598', -- Director

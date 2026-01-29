@@ -3,7 +3,7 @@ Config = Config or {}
 Config.Core = "qbx_core"        -- "qb-core" or "qbx_core"
 Config.Fuel = "cdn-fuel"        -- "ps-fuel", "LegacyFuel", "ox_fuel"
 Config.ResourcePerms = 'admin' -- permission to control resource(start stop restart)
-Config.ShowCommandsPerms = 'staff' -- permission to show all commands
+Config.ShowCommandsPerms = 'staffcommands' -- permission to show all commands
 Config.RenewedPhone = false    -- if you use qb-phone from renewed. (multijob)
 
 -- Key Bindings

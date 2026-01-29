@@ -553,11 +553,11 @@ Config.EnableVoiceMessages = true -- Allow players to send voice messages?
 Config.EnableGIFs = true
 Config.GIFsFilter = "low" -- https://developers.google.com/tenor/guides/content-filtering#ContentFilter-options
 
-Config.CityName = "Laneway Roleplay" -- The name that's being used in the weather app etc.
+Config.CityName = "Faction Networks" -- The name that's being used in the weather app etc.
 Config.RealTime = true -- if true, the time will use real life time depending on where the user lives, if false, the time will be the ingame time.
 Config.CustomTime = false -- NOTE: disable Config.RealTime if using this. you can set this to a function that returns custom time, as a table: { hour = 0-24, minute = 0-60 }
 
-Config.EmailDomain = "lanewayrp.com"
+Config.EmailDomain = "factionnetworks.com"
 Config.AutoCreateEmail = true -- should the phone automatically create an email for the player when they set up the phone?
 Config.DeleteMail = true -- allow players to delete mails in the mail app?
 Config.ConvertMailToMarkdown = true -- convert mails from html to markdown?
