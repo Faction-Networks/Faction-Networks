@@ -248,11 +248,12 @@ RegisterNetEvent('vn_vicroads:cancelLicense', function(license)
     local src = source
     local identifier = Framework.GetIdentifier(src)
     if not identifier then return end
-    
-    -- Remove license from database
-    MySQL.query('DELETE FROM vicroads_licenses WHERE identifier = ? AND license = ?', {
-        identifier, license
-    })
+    -- Remove from players.charinfo via exported helper
+    if exports and exports['instants_vicroads'] and exports['instants_vicroads'].RemoveLicenseFromPlayersCharinfo then
+        pcall(function()
+            exports['instants_vicroads']:RemoveLicenseFromPlayersCharinfo(identifier, license)
+        end)
+    end
     
     -- Clear test progress for this license
     exports['vn_vicroads']:ClearTestProgress(identifier, license)

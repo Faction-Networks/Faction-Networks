@@ -15,6 +15,9 @@ return {
             [0] = {
                 name = 'Member'
             },
+            [1] = {
+                name = 'Supervisor'
+            },
         },
     },
     ['ciu'] = {
@@ -22,6 +25,9 @@ return {
         grades = {
             [0] = {
                 name = 'Member'
+            },
+            [1] = {
+                name = 'Supervisor'
             },
         },
     },
@@ -31,6 +37,9 @@ return {
             [0] = {
                 name = 'Member'
             },
+            [1] = {
+                name = 'Supervisor'
+            },
         },
     },
     ['port'] = {
@@ -38,6 +47,9 @@ return {
         grades = {
             [0] = {
                 name = 'Member'
+            },
+            [1] = {
+                name = 'Supervisor'
             },
         },
     },

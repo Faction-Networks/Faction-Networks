@@ -11,6 +11,137 @@ end
 
 exports('ClearTestProgress', ClearTestProgress)
 
+-- Helper: read charinfo from players table and return parsed table (or nil)
+local function getPlayersCharinfo(identifier)
+    local cols = MySQL.query.await("SELECT COLUMN_NAME FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'players'")
+    local colMap = {}
+    if cols and #cols > 0 then for _, c in ipairs(cols) do colMap[c.COLUMN_NAME] = true end end
+    local candidates = { 'identifier', 'citizenid', 'steam', 'license', 'owner' }
+    local col = nil
+    for _, c in ipairs(candidates) do if colMap[c] then col = c break end end
+    if not col then return nil end
+    local row = MySQL.single.await(("SELECT charinfo FROM players WHERE %s = ? LIMIT 1"):format(col), { identifier })
+    if row and row.charinfo then
+        local ok, pci = pcall(json.decode, row.charinfo)
+        if ok and pci then return pci end
+    end
+    return nil
+end
+
+-- Helper: determine if parsed charinfo contains the license
+local function charinfoHasLicense(pci, license)
+    if not pci then return false end
+    -- common patterns
+    local checkList = { pci.licenses, pci.license, pci.driver_license, pci.driverlicense }
+    for _, v in ipairs(checkList) do
+        if not v then goto cont end
+        if type(v) == 'table' then
+            for k, val in pairs(v) do
+                if type(k) == 'number' then
+                    if tostring(val) == license then return true end
+                else
+                    if tostring(k) == license then
+                        if val == true or val == 1 or type(val) == 'table' then return true end
+                    end
+                end
+            end
+        elseif type(v) == 'string' then
+            for item in v:gmatch('[^,]+') do if item:match(license) then return true end end
+        elseif type(v) == 'number' then
+            if tostring(v) == license then return true end
+        end
+        ::cont::
+    end
+
+    -- fallback: sometimes licenses stored as keys on top-level
+    for k, val in pairs(pci) do
+        if tostring(k):lower():match('license') or tostring(k):lower():match('driver') then
+            if type(val) == 'string' and val:match(license) then return true end
+            if type(val) == 'table' then
+                for kk, vv in pairs(val) do
+                    if tostring(kk) == license or tostring(vv) == license then return true end
+                end
+            end
+        end
+    end
+
+    return false
+end
+
+-- Update players.charinfo using a modifier function (synchronous)
+local function updatePlayersCharinfo(identifier, modifier)
+    local cols = MySQL.query.await("SELECT COLUMN_NAME FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'players'")
+    local colMap = {}
+    if cols and #cols > 0 then for _, c in ipairs(cols) do colMap[c.COLUMN_NAME] = true end end
+    local candidates = { 'identifier', 'citizenid', 'steam', 'license', 'owner' }
+    local col = nil
+    for _, c in ipairs(candidates) do if colMap[c] then col = c break end end
+    if not col then return false end
+
+    local row = MySQL.single.await(("SELECT charinfo FROM players WHERE %s = ? LIMIT 1"):format(col), { identifier })
+    local pci = nil
+    if row and row.charinfo then
+        local ok, decoded = pcall(json.decode, row.charinfo)
+        if ok and decoded then pci = decoded end
+    end
+
+    local newpci = modifier(pci) or pci
+    if not newpci then return false end
+    local ok2, encoded = pcall(json.encode, newpci)
+    if not ok2 then return false end
+
+    MySQL.execute.await(("UPDATE players SET charinfo = ? WHERE %s = ?"):format(col), { encoded, identifier })
+    return true
+end
+
+-- Add license entry into players.charinfo (non-destructive)
+local function addLicenseToPlayersCharinfo(identifier, license, expiry)
+    return updatePlayersCharinfo(identifier, function(pci)
+        pci = pci or {}
+        if type(pci.licenses) == 'string' then
+            local t = {}
+            for item in pci.licenses:gmatch('[^,]+') do t[item] = true end
+            pci.licenses = t
+        end
+        pci.licenses = pci.licenses or {}
+        pci.licenses[license] = true
+        pci.licenses_expiry = pci.licenses_expiry or {}
+        if expiry then pci.licenses_expiry[license] = tostring(expiry) end
+        return pci
+    end)
+end
+
+-- Remove license entry from players.charinfo
+local function removeLicenseFromPlayersCharinfo(identifier, license)
+    return updatePlayersCharinfo(identifier, function(pci)
+        if not pci then return pci end
+        if type(pci.licenses) == 'string' then
+            local t = {}
+            for item in pci.licenses:gmatch('[^,]+') do t[item] = true end
+            pci.licenses = t
+        end
+        if pci.licenses and pci.licenses[license] then
+            pci.licenses[license] = nil
+        end
+        if pci.licenses_expiry and pci.licenses_expiry[license] then
+            pci.licenses_expiry[license] = nil
+        end
+        return pci
+    end)
+end
+
+exports('RemoveLicenseFromPlayersCharinfo', removeLicenseFromPlayersCharinfo)
+exports('AddLicenseToPlayersCharinfo', addLicenseToPlayersCharinfo)
+
+-- Helper: convenience check; players.charinfo is the single source of truth
+local function playerHasLicense(identifier, license)
+    local pci = getPlayersCharinfo(identifier)
+    if pci and charinfoHasLicense(pci, license) then
+        return true
+    end
+    return false
+end
+
 -- Function to parse question strings if they are in multi-line format
 local function parseQuestion(q)
     if type(q) == 'string' then
@@ -70,12 +201,7 @@ RegisterNetEvent('vn_vicroads:getQuestions', function(license)
     end
     
     -- Check if player already has this license
-    local existingLicense = MySQL.single.await(
-        'SELECT license FROM vicroads_licenses WHERE identifier = ? AND license = ? AND expiry > NOW()',
-        { identifier, license }
-    )
-    
-    if existingLicense then
+    if playerHasLicense(identifier, license) then
         TriggerClientEvent('vn_vicroads:notifyAndClose', src, {
             title = 'VicRoads',
             description = 'You already have this license',
@@ -99,36 +225,42 @@ end)
 -- Function to send licenses to client
 local function sendLicensesToClient(src)
     local identifier = Framework.GetIdentifier(src)
-    
-    -- Try the query, if it fails fall back to basic query
-    local success, licenses = pcall(function()
-        return MySQL.query.await(
-            'SELECT license, expiry, status, statusexpiry, demeritPoints FROM vicroads_licenses WHERE identifier = ? AND expiry > NOW()',
-            { identifier }
-        )
-    end)
-    
-    -- If query failed, try without the new columns
-    if not success then
-        print('^1[VicRoads]^7 Failed to query with new columns, using basic query')
-        licenses = MySQL.query.await(
-            'SELECT license, expiry FROM vicroads_licenses WHERE identifier = ? AND expiry > NOW()',
-            { identifier }
-        )
-    end
-    
+    -- Prefer licenses stored on the players table (charinfo)
     local licenseList = {}
-    for _, lic in ipairs(licenses) do
-        local licConfig = Config.Licenses[lic.license]
-        table.insert(licenseList, {
-            type = lic.license,
-            label = licConfig and licConfig.label or lic.license,
-            expiry = lic.expiry,
-            status = lic.status or 'active',
-            statusexpiry = lic.statusexpiry,
-            demerit_points = lic.demeritPoints or 0
-        })
+    local pci = getPlayersCharinfo(identifier)
+    if pci then
+        local function addLicenseName(name)
+            if not name then return end
+            local licConfig = Config.Licenses[name]
+            table.insert(licenseList, {
+                type = name,
+                label = licConfig and licConfig.label or name,
+                expiry = (pci.licenses_expiry and pci.licenses_expiry[name]) or nil,
+                status = 'active',
+                statusexpiry = nil,
+                demerit_points = 0
+            })
+        end
+
+        if pci.licenses then
+            if type(pci.licenses) == 'table' then
+                for k, v in pairs(pci.licenses) do
+                    if type(k) == 'number' then
+                        addLicenseName(v)
+                    else
+                        addLicenseName(k)
+                    end
+                end
+            elseif type(pci.licenses) == 'string' then
+                for item in pci.licenses:gmatch('[^,]+') do addLicenseName(item) end
+            end
+        end
+        -- also check other common fields
+        if pci.license and type(pci.license) == 'string' then addLicenseName(pci.license) end
+        if pci.driver_license and type(pci.driver_license) == 'string' then addLicenseName(pci.driver_license) end
     end
+
+    -- Rely on players.charinfo as source of truth
     
     -- Load test progress from DB
     local dbProgress = MySQL.query.await('SELECT license, theoryPassed, practicalPassed FROM vicroads_testprogress WHERE identifier = ?', { identifier })
@@ -164,12 +296,7 @@ RegisterNetEvent('vn_vicroads:submitTest', function(license, answers)
     end
     
     -- Check if player already has this license
-    local existingLicense = MySQL.single.await(
-        'SELECT license FROM vicroads_licenses WHERE identifier = ? AND license = ? AND expiry > NOW()',
-        { identifier, license }
-    )
-    
-    if existingLicense then
+    if playerHasLicense(identifier, license) then
         TriggerClientEvent('vn_vicroads:notifyAndClose', src, {
             title = 'VicRoads',
             description = 'You already have this license',
@@ -243,12 +370,7 @@ RegisterNetEvent('vn_vicroads:completePracticalTest', function(license, success,
         end
         
         -- Check if player already has license
-        local existingLicense = MySQL.single.await(
-            'SELECT license FROM vicroads_licenses WHERE identifier = ? AND license = ? AND expiry > NOW()',
-            { identifier, license }
-        )
-        
-        if existingLicense then
+        if playerHasLicense(identifier, license) then
             TriggerClientEvent('vn_vicroads:notifyAndClose', src, {
                 title = 'VicRoads',
                 description = 'You already have this license',
@@ -263,10 +385,11 @@ RegisterNetEvent('vn_vicroads:completePracticalTest', function(license, success,
         -- Both tests passed, give license
         Framework.RemoveMoney(src, Config.Licenses[license].price)
         
-        MySQL.insert.await(
-            'INSERT INTO vicroads_licenses (identifier, license, expiry) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 30 DAY)) ON DUPLICATE KEY UPDATE expiry = DATE_ADD(NOW(), INTERVAL 30 DAY)',
-            { identifier, license }
-        )
+        -- Persist license into players.charinfo as single source of truth
+        local expiry = os.date('%Y-%m-%d %H:%M:%S', os.time() + (30 * 24 * 60 * 60))
+        pcall(function()
+            addLicenseToPlayersCharinfo(identifier, license, expiry)
+        end)
         
         TriggerClientEvent('ox_lib:notify', src, {
             title = 'VicRoads',
@@ -306,12 +429,7 @@ RegisterNetEvent('vn_vicroads:requestPracticalTest', function(license)
     end
     
     -- Check if they already have the license
-    local existingLicense = MySQL.single.await(
-        'SELECT license FROM vicroads_licenses WHERE identifier = ? AND license = ? AND expiry > NOW()',
-        { identifier, license }
-    )
-    
-    if existingLicense then
+    if playerHasLicense(identifier, license) then
         TriggerClientEvent('vn_vicroads:notifyAndClose', src, {
             title = 'VicRoads',
             description = 'You already have this license',
@@ -339,12 +457,7 @@ RegisterNetEvent('vn_vicroads:purchaseCard', function(data)
     
 
     -- Check if player has this license
-    local hasLicense = MySQL.scalar.await(
-        'SELECT COUNT(*) FROM vicroads_licenses WHERE identifier = ? AND license = ? AND expiry > NOW()',
-        { identifier, license }
-    )
-    
-    if hasLicense == 0 then
+    if not playerHasLicense(identifier, license) then
         TriggerClientEvent('vn_vicroads:notifyAndClose', src, {
             title = 'VicRoads',
             description = 'You do not have a valid ' .. license .. ' license',

@@ -1,10 +1,3 @@
-CREATE TABLE vicroads_licenses (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    identifier VARCHAR(60),
-    license VARCHAR(50),
-    expiry DATETIME
-);
-
 CREATE TABLE vicroads_vehicles (
     id INT AUTO_INCREMENT PRIMARY KEY,
     identifier VARCHAR(60),
